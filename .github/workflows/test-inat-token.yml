@@ -1,0 +1,80 @@
+name: Test iNat API Token
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify token authenticates
+        run: |
+          echo "--- Checking token authenticates with iNat ---"
+          status=$(curl -s -o me.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.INAT_API_TOKEN }}" \
+            -H "Accept: application/json" \
+            "https://api.inaturalist.org/v1/users/me")
+
+          echo "HTTP status: $status"
+
+          if [ "$status" = "200" ]; then
+            echo "✓ Token accepted by iNat (HTTP 200)"
+            echo "Raw response (for structure inspection):"
+            cat me.json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          print(json.dumps(d, indent=2)[:800])
+          "
+          elif [ "$status" = "401" ]; then
+            echo "✗ Token rejected (401 Unauthorized)"
+            echo "  Refresh at: https://www.inaturalist.org/users/api_token"
+            echo "  Then update the INAT_API_TOKEN secret in repo Settings"
+            exit 1
+          else
+            echo "✗ Unexpected HTTP status: $status"
+            cat me.json
+            exit 1
+          fi
+
+      - name: Confirm observation data and counts work
+        run: |
+          echo ""
+          echo "--- Spot-check: Calochortus research-grade wild ---"
+          result=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.INAT_API_TOKEN }}" \
+            -H "Accept: application/json" \
+            "https://api.inaturalist.org/v1/observations?per_page=1&taxon_name=Calochortus&quality_grade=research&captive=false")
+
+          echo "$result" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          total = d.get('total_results', 0)
+          print(f'  Total Calochortus research-grade wild: {total:,}')
+          if total > 0:
+              obs = d['results'][0]
+              print(f'  Sample obs ID:   {obs[\"id\"]}')
+              print(f'  Sample taxon:    {obs[\"taxon\"][\"name\"]}')
+              print(f'  Sample location: {obs.get(\"place_guess\") or \"(obscured)\"}')
+              print(f'  Geoprivacy:      {obs.get(\"geoprivacy\") or \"open\"}')
+              print(f'  Photo count:     {len(obs.get(\"photos\", []))}')
+              print('✓ Observation data looks correct')
+          else:
+              print('✗ Zero results returned — unexpected')
+              sys.exit(1)
+          "
+
+      - name: Count check — Calochortus venustus (single species)
+        run: |
+          echo ""
+          echo "--- Count check: Calochortus venustus ---"
+          curl -s \
+            -H "Authorization: Bearer ${{ secrets.INAT_API_TOKEN }}" \
+            -H "Accept: application/json" \
+            "https://api.inaturalist.org/v1/observations?per_page=1&taxon_name=Calochortus%20venustus&quality_grade=research&captive=false" \
+            | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          total = d.get('total_results', 0)
+          print(f'  Calochortus venustus research-grade wild: {total:,}')
+          print('✓ Count endpoint working correctly')
+          "

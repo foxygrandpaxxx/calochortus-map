@@ -1,0 +1,11 @@
+node_modules/
+scripts/node_modules/
+.claude/
+.DS_Store
+Thumbs.db
+
+# Exclude all koppen GeoTIFFs except the 0.1-degree file the map actually loads
+koppen_geiger_tif/**
+!koppen_geiger_tif/
+!koppen_geiger_tif/1991_2020/
+!koppen_geiger_tif/1991_2020/koppen_geiger_0p1.tif

@@ -1,0 +1,131 @@
+name: Refresh iNat Data
+
+on:
+  schedule:
+    - cron: '0 3 1 * *'   # 3am UTC on the 1st of each month
+  workflow_dispatch:        # manual trigger any time via Actions tab
+
+permissions:
+  contents: write           # needed to commit updated inat/ files back to repo
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # suppress Node.js 20 deprecation warnings
+
+jobs:
+
+  # ── Job 1: fetch all observations ──────────────────────────────────────────
+  fetch-obs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90    # obs fetch runs ~55-65 min
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install script dependencies
+        run: cd scripts && npm install
+
+      - name: Fetch iNat observations
+        env:
+          INAT_API_TOKEN: ${{ secrets.INAT_API_TOKEN }}
+        run: node scripts/fetch-inat-data.js obs
+
+      # NOTE: pull/push both use an explicit token-in-URL. The auth header that
+      # actions/checkout configures via `extraheader` can expire before the
+      # job's 6h ceiling on long-running jobs (observed at ~5h09m). fetch-obs
+      # is short (~45 min) so this is defensive, but uniform across all jobs.
+      - name: Commit observation data
+        run: |
+          git config user.name  foxygrandpaxxx
+          git config user.email foxygrandpaxxx@users.noreply.github.com
+          REPO_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git add inat/
+          if git diff --staged --quiet; then
+            echo "No changes to commit — obs data is already up to date"
+          else
+            git commit -m "chore: monthly iNat obs refresh $(date -u +%Y-%m-%d)"
+            git pull --rebase "$REPO_URL" main
+            git push "$REPO_URL" HEAD:main
+            echo "✓ Obs data committed and pushed"
+          fi
+
+      - name: Show fetch report
+        if: always()
+        run: |
+          if [ -f inat/fetch-report.json ]; then
+            echo "=== Fetch Report ==="
+            cat inat/fetch-report.json
+          fi
+
+  # ── Job 2: precompute species climate envelopes ───────────────────────────
+  species-climate:
+    needs: fetch-obs        # starts only after fetch-obs succeeds
+    runs-on: ubuntu-latest
+    timeout-minutes: 360   # climate fetch alone takes ~240 min (10k cells × ~1.4s/cell incl. response latency)
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main   # get latest HEAD, not the trigger SHA — picks up obs data committed by fetch-obs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install script dependencies
+        run: cd scripts && npm install
+
+      - name: Precompute species climate envelopes
+        env:
+          INAT_API_TOKEN: ${{ secrets.INAT_API_TOKEN }}
+        run: node scripts/fetch-inat-data.js species
+
+      # SUCCESS: one combined commit — elev-cache + species-data + report together.
+      # Only one push happens, so there is no fast-forward conflict.
+      # See fetch-obs above for token-in-URL rationale.
+      - name: Commit species data
+        if: success()
+        run: |
+          git config user.name  foxygrandpaxxx
+          git config user.email foxygrandpaxxx@users.noreply.github.com
+          REPO_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git add inat/
+          if git diff --staged --quiet; then
+            echo "No changes to commit — species data is already up to date"
+          else
+            git commit -m "chore: monthly iNat species-climate refresh $(date -u +%Y-%m-%d)"
+            git pull --rebase "$REPO_URL" main
+            git push "$REPO_URL" HEAD:main
+            echo "✓ Species data committed and pushed"
+          fi
+
+      # FAILURE / TIMEOUT: salvage whatever cache progress was written to disk.
+      # Both caches flush every 100–1,000 cells, so even a mid-run timeout
+      # preserves partial data for the next attempt.
+      # (Job timeout = cancelled(), script error = failure(); both are caught here.)
+      - name: Commit caches on failure
+        if: failure() || cancelled()
+        run: |
+          git config user.name  foxygrandpaxxx
+          git config user.email foxygrandpaxxx@users.noreply.github.com
+          REPO_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git add inat/elev-cache.json inat/climate-cache.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "No cache changes to commit"
+          else
+            git commit -m "chore: update elev/climate cache $(date -u +%Y-%m-%d)"
+            git pull --rebase "$REPO_URL" main
+            git push "$REPO_URL" HEAD:main
+            echo "✓ Cache data committed and pushed"
+          fi
+
+      - name: Show species report
+        if: always()
+        run: |
+          if [ -f inat/species-report.json ]; then
+            echo "=== Species Report ==="
+            cat inat/species-report.json
+          fi

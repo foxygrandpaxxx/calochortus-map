@@ -1,0 +1,9 @@
+{
+  "name": "calochortus-inat-fetch",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Fetches iNaturalist Calochortus observations for the Calochortus Climate Map",
+  "dependencies": {
+    "georaster": "^1.6.0"
+  }
+}
