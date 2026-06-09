@@ -47,7 +47,7 @@ jobs:
             echo "No changes to commit — obs data is already up to date"
           else
             git commit -m "chore: monthly iNat obs refresh $(date -u +%Y-%m-%d)"
-            git pull --rebase "$REPO_URL" main
+            git pull --rebase --autostash "$REPO_URL" main
             git push "$REPO_URL" HEAD:main
             echo "✓ Obs data committed and pushed"
           fi
@@ -97,7 +97,7 @@ jobs:
             echo "No changes to commit — species data is already up to date"
           else
             git commit -m "chore: monthly iNat species-climate refresh $(date -u +%Y-%m-%d)"
-            git pull --rebase "$REPO_URL" main
+            git pull --rebase --autostash "$REPO_URL" main
             git push "$REPO_URL" HEAD:main
             echo "✓ Species data committed and pushed"
           fi
@@ -117,7 +117,7 @@ jobs:
             echo "No cache changes to commit"
           else
             git commit -m "chore: update elev/climate cache $(date -u +%Y-%m-%d)"
-            git pull --rebase "$REPO_URL" main
+            git pull --rebase --autostash "$REPO_URL" main
             git push "$REPO_URL" HEAD:main
             echo "✓ Cache data committed and pushed"
           fi
