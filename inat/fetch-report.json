@@ -1,0 +1,13 @@
+{
+  "generated": "2026-06-09T18:22:55.223Z",
+  "genera": {
+    "Calochortus": {
+      "fetched": 148948,
+      "expected": 149653,
+      "failed": []
+    }
+  },
+  "totalRequests": 949,
+  "totalObs": 148948,
+  "durationMin": 21
+}
