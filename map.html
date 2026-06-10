@@ -1239,6 +1239,28 @@ html, body {
 }
 .inat-check-all:hover { opacity: 1; }
 
+/* ── Date Observed filter ──────────────────────────────── */
+.inat-date-quick { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.inat-date-btn {
+  font-size: 10px; color: var(--text-primary);
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 4px; padding: 3px 7px; cursor: pointer; transition: all 0.12s;
+}
+.inat-date-btn:hover { border-color: var(--accent); color: var(--accent); }
+.inat-date-btn.active { background: var(--accent); border-color: var(--accent); color: #08120a; font-weight: 600; }
+.inat-date-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 8px 0 3px; }
+.inat-date-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.inat-date-row.disabled { opacity: 0.4; pointer-events: none; }
+.inat-date-mon, .inat-date-day, .inat-date-year {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  color: var(--text-primary); border-radius: 4px; padding: 3px 5px; font-size: 11px;
+}
+.inat-date-day  { width: 46px; }
+.inat-date-year { width: 62px; }
+.inat-date-mon  { max-width: 80px; }
+.inat-date-sep  { font-size: 10px; color: var(--text-muted); }
+.inat-date-count { font-size: 10px; color: var(--accent); margin-top: 8px; min-height: 12px; }
+
 .inat-status {
   padding: 6px 12px;
   font-size: 11px;
@@ -2213,6 +2235,37 @@ body.bmg-onboarding #search-container { z-index: 9100; }
           <label class="inat-check-label">
             <input type="checkbox" id="inat-nid"> Needs ID
           </label>
+        </div>
+      </div>
+
+      <!-- Date observed -->
+      <div class="inat-section">
+        <div class="inat-section-head" data-target="inat-date-body">
+          Date Observed <span class="inat-chevron">▾</span>
+        </div>
+        <div class="inat-section-body" id="inat-date-body">
+          <div class="inat-date-quick">
+            <button class="inat-date-btn" data-days="7">Past 7d</button>
+            <button class="inat-date-btn" data-days="14">Past 14d</button>
+            <button class="inat-date-btn" data-days="21">Past 21d</button>
+            <button class="inat-date-btn" data-days="clear">Clear</button>
+          </div>
+          <div class="inat-date-label">Day range (month / day)</div>
+          <div class="inat-date-row">
+            <select class="inat-date-mon" id="inat-day-start-m"></select>
+            <input type="number" class="inat-date-day" id="inat-day-start-d" min="1" max="31" placeholder="–">
+            <span class="inat-date-sep">to</span>
+            <select class="inat-date-mon" id="inat-day-end-m"></select>
+            <input type="number" class="inat-date-day" id="inat-day-end-d" min="1" max="31" placeholder="–">
+          </div>
+          <div class="inat-date-label">Years</div>
+          <label class="inat-check-label"><input type="checkbox" id="inat-year-all"> All years</label>
+          <div class="inat-date-row" id="inat-year-row">
+            <input type="number" class="inat-date-year" id="inat-year-start" min="2006" max="2100">
+            <span class="inat-date-sep">to</span>
+            <input type="number" class="inat-date-year" id="inat-year-end" min="2006" max="2100">
+          </div>
+          <div class="inat-date-count" id="inat-date-count"></div>
         </div>
       </div>
 
@@ -4950,7 +5003,7 @@ function buildSpeciesSidebarContent(entry) {
   // expand of the <details>. Pagination via "Load more" — long-tail species
   // like Drosera have 160k+ obs and we can't dump them all into the DOM.
   const speciesObsAll = (inatObs?.length && inatTaxa?.length)
-    ? inatObs.filter(o => inatTaxa[o[OBS_TI]]?.[1] === entry.scientific_name)
+    ? inatObs.filter(o => inatTaxa[o[OBS_TI]]?.[1] === entry.scientific_name && obsPassesDate(o))
     : [];
 
   const obsSectionHtml = `
@@ -6243,7 +6296,33 @@ const inatFilters = {
   genera:  new Set(INAT_GENERA),
   needsId: false,
   koppen:  new Set(Array.from({ length: 30 }, (_, i) => i + 1)),
+  // Date Observed filter. The day window (dayStart/dayEnd as 'MM-DD') is what
+  // activates the filter; the year range narrows which years count (or allYears
+  // ignores it). Setting a day window + allYears is the cross-year "bloom
+  // window" comparison: every observation in that calendar window, all years.
+  dayStart: null, dayEnd: null,   // 'MM-DD' strings, or null = no day filter
+  yearStart: null, yearEnd: null, // integers, or null
+  allYears: false,
 };
+
+// True if an observation's date passes the Date-Observed filter. The day window
+// wraps across year-end when dayStart > dayEnd (e.g. Dec 20 → Jan 5). Undated
+// observations are excluded once a window is set.
+function obsPassesDate(o) {
+  const ds = inatFilters.dayStart, de = inatFilters.dayEnd;
+  if (!ds || !de) return true;                 // no day window → filter inactive
+  const date = o[OBS_DATE];
+  if (!date || date.length < 10) return false;
+  const md = date.slice(5);                     // 'MM-DD'
+  const inWindow = ds <= de ? (md >= ds && md <= de) : (md >= ds || md <= de);
+  if (!inWindow) return false;
+  if (!inatFilters.allYears) {
+    const y = +date.slice(0, 4);
+    if (inatFilters.yearStart && y < inatFilters.yearStart) return false;
+    if (inatFilters.yearEnd   && y > inatFilters.yearEnd)   return false;
+  }
+  return true;
+}
 
 // ── Reverse-geocode cache for obs detail panel ────────────
 // Nominatim asks for ≤1 req/sec/IP, so cache results aggressively per cell.
@@ -6458,6 +6537,7 @@ function buildInatFeatures() {
     // Köppen legend filter — AND-ed with the iNat-panel filters above.
     // Empty selectedKoppenCodes set = no filter.
     if (selectedKoppenCodes.size > 0 && !selectedKoppenCodes.has(koppen)) continue;
+    if (!obsPassesDate(o)) continue;
     const feat = {
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [o[OBS_LNG], o[OBS_LAT]] },
@@ -6495,6 +6575,18 @@ function rebuildInatIndex() {
   const features = buildInatFeatures();   // also rebuilds inatObscuredCells
   inatWorker.postMessage({ type: 'load', features });
   drawObscuredBoxes();                     // obscured layer is client-side, redraw now
+  let obscured = 0;
+  inatObscuredCells.forEach(c => { obscured += c.feats.length; });
+  updateDateCount(features.length + obscured);
+}
+
+// Show how many observations match while a day window is active (feedback for
+// the cross-year bloom-window comparison). Hidden when no day window is set.
+function updateDateCount(n) {
+  const el = document.getElementById('inat-date-count');
+  if (!el) return;
+  const active = inatFilters.dayStart && inatFilters.dayEnd;
+  el.textContent = active ? `${n.toLocaleString()} observation${n === 1 ? '' : 's'} match` : '';
 }
 
 // ── Rendering ─────────────────────────────────────────────
@@ -7447,6 +7539,63 @@ function buildInatFilterPanel() {
       disableInatLayer();
     }
   });
+
+  // ── Date Observed ──
+  const monthOpts = '<option value="">—</option>' +
+    MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+  document.getElementById('inat-day-start-m').innerHTML = monthOpts;
+  document.getElementById('inat-day-end-m').innerHTML   = monthOpts;
+  const curYear = new Date().getFullYear();
+  document.getElementById('inat-year-start').value = curYear;
+  document.getElementById('inat-year-end').value   = curYear;
+
+  // Manual edits to any day/year control clear the active quick-button highlight.
+  document.querySelectorAll('#inat-date-body .inat-date-mon, #inat-date-body .inat-date-day, #inat-date-body .inat-date-year')
+    .forEach(el => el.addEventListener('change', () => { clearDateQuickActive(); applyInatFilters(); }));
+
+  document.getElementById('inat-year-all').addEventListener('change', e => {
+    document.getElementById('inat-year-row').classList.toggle('disabled', e.target.checked);
+    applyInatFilters();
+  });
+
+  document.querySelectorAll('.inat-date-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = btn.dataset.days;
+      if (v === 'clear') { clearDateControls(); applyInatFilters(); return; }
+      // "Past N days" → day window ending today, current year only.
+      const today = new Date();
+      const start = new Date(); start.setDate(today.getDate() - (parseInt(v) - 1));
+      setDayControl('start', start.getMonth() + 1, start.getDate());
+      setDayControl('end',   today.getMonth() + 1, today.getDate());
+      const allYears = document.getElementById('inat-year-all');
+      allYears.checked = false;
+      document.getElementById('inat-year-row').classList.remove('disabled');
+      document.getElementById('inat-year-start').value = today.getFullYear();
+      document.getElementById('inat-year-end').value   = today.getFullYear();
+      document.querySelectorAll('.inat-date-btn').forEach(b => b.classList.toggle('active', b === btn));
+      applyInatFilters();
+    });
+  });
+}
+
+function setDayControl(which, month, day) {
+  document.getElementById(`inat-day-${which}-m`).value = month;
+  document.getElementById(`inat-day-${which}-d`).value = day;
+}
+function clearDateQuickActive() {
+  document.querySelectorAll('.inat-date-btn.active').forEach(b => b.classList.remove('active'));
+}
+function clearDateControls() {
+  ['start', 'end'].forEach(w => {
+    document.getElementById(`inat-day-${w}-m`).value = '';
+    document.getElementById(`inat-day-${w}-d`).value = '';
+  });
+  const curYear = new Date().getFullYear();
+  document.getElementById('inat-year-all').checked = false;
+  document.getElementById('inat-year-row').classList.remove('disabled');
+  document.getElementById('inat-year-start').value = curYear;
+  document.getElementById('inat-year-end').value   = curYear;
+  clearDateQuickActive();
 }
 
 function applyInatFilters() {
@@ -7460,6 +7609,17 @@ function applyInatFilters() {
   inatFilters.koppen  = new Set(
     [...document.querySelectorAll('.inat-koppen-cb:checked')].map(cb => parseInt(cb.dataset.kv))
   );
+  // Date Observed — day window (MM-DD) only activates when both ends are set.
+  const pad = n => String(n).padStart(2, '0');
+  const dsM = document.getElementById('inat-day-start-m').value;
+  const dsD = document.getElementById('inat-day-start-d').value;
+  const deM = document.getElementById('inat-day-end-m').value;
+  const deD = document.getElementById('inat-day-end-d').value;
+  inatFilters.dayStart = (dsM && dsD) ? `${pad(dsM)}-${pad(dsD)}` : null;
+  inatFilters.dayEnd   = (deM && deD) ? `${pad(deM)}-${pad(deD)}` : null;
+  inatFilters.allYears = document.getElementById('inat-year-all').checked;
+  inatFilters.yearStart = parseInt(document.getElementById('inat-year-start').value) || null;
+  inatFilters.yearEnd   = parseInt(document.getElementById('inat-year-end').value)   || null;
 
   if (!inatVisible) return;
 
