@@ -1,13 +1,13 @@
 {
-  "generated": "2026-08-01T05:44:45.108Z",
+  "generated": "2026-09-01T08:03:58.409Z",
   "genera": {
     "Calochortus": {
-      "fetched": 155879,
-      "expected": 156603,
+      "fetched": 156400,
+      "expected": 157126,
       "failed": []
     }
   },
-  "totalRequests": 985,
-  "totalObs": 155879,
-  "durationMin": 18
+  "totalRequests": 988,
+  "totalObs": 156400,
+  "durationMin": 17
 }
